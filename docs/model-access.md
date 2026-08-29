@@ -77,6 +77,7 @@ node orchestrator/src/run.ts --symbol 300308 --market SZ --provider deepseek --m
 | `glm` | 智谱 GLM · 阿里云百炼 | `DASHSCOPE_API_KEY` | `glm-5.2` | 同上 |
 | `kimi` | Kimi · 阿里云百炼 | `DASHSCOPE_API_KEY` | `kimi-k2.7-code` | 同上 |
 | `mimo` | 小米 MiMo 官方原生 Responses | `MIMO_API_KEY` | `mimo-v2.5` | `https://token-plan-cn.xiaomimimo.com/v1` |
+| `selfhosted` | **自托管模型**（vLLM / SGLang / LM Studio / Ollama 等） | `SELFHOSTED_API_KEY` | 自己填 | `http://{Host}:{Port}/v1`（占位，必须复制覆盖） |
 
 ⚠️ **三个百炼模板不能直接用**:`base_url` 里的 `{WorkspaceId}` 是留给你填的。把模板复制到 `.local/providers/<id>.json`、
 换成自己的工作空间 ID 再选用 —— 没换会在**选用时当场被拒**(而不是把密钥发到一个不存在的主机上)。
@@ -146,6 +147,53 @@ agent 那一轮 4.7 分钟 —— ⚠️ 慢,turn 超时压到 5 分钟会连续
 这次验证的是普通用户真实路径，不是只调用 provider 矩阵或后端函数：从无配置/未登录状态开始，
 经过浏览器设置页接入，再在实际业务页面发起 Agent 任务。
 
+## 3. 自托管模型（私有化部署：vLLM / SGLang / LM Studio / Ollama）
+
+私有化场景走 `selfhosted` 占位模板。完整路径（与云厂商模板机制完全相同，只是端点在内网）：
+
+1. **复制占位模板到用户覆盖层**，替换占位符：
+
+   ```bash
+   cp providers/selfhosted.json .local/providers/selfhosted.json
+   # 编辑 .local/providers/selfhosted.json:
+   #   base_url      -> http://192.168.x.x:8000/v1   (你的推理端点;http 合法,自托管不受 https 约束)
+   #   default_model -> 你部署的模型名 (如 qwen3-32b)
+   #   responses_support / known_incompatibilities 按端点实际情况修正
+   ```
+
+   不复制、直接选用 `selfhosted` 会被当场拒（占位符未替换）——和百炼三件套同一护栏。
+
+2. **选产品 provider**（研究 / 多空辩论 / 回测 / 每日复盘等编排引擎用的这一层）：
+
+   ```jsonc
+   // .local/config.json
+   { "provider": { "profile": "selfhosted", "auth": "api_key" },
+     "defaults": { "model": "qwen3-32b" } }
+   ```
+
+   或在启动服务的 shell 里 `export VRA_PROVIDER=selfhosted VRA_MODEL=...`。
+
+3. **密钥只走环境变量**：`export SELFHOSTED_API_KEY=...`。⚠️ 最常见的私有化故障：
+   重启编排器进程时没带这个环境变量 → 引擎报"provider.auth=api_key 但环境变量
+   SELFHOSTED_API_KEY 未设置"，界面表现为"所有阶段都失败了：根本没跑起来"。
+   用 launchd / systemd 托管时把 `SELFHOSTED_API_KEY` 写进服务环境（plist / Environment），
+   不要写进任何仓库文件或 `.local/config.json`。
+
+4. **`/v1/responses` 不可用怎么办**：多数 vLLM 版本的 `/v1/responses` 对 codex 的复杂
+   请求（含 `developer` 角色 / reasoning 项）报 400。模板 `responses_support` 默认 `gateway`
+   即指这条出路：在端点和产品之间架一层 Responses→Chat Completions 转换网关
+   （LiteLLM、one-api、自研代理均可），`base_url` 指向网关。端点原生支持
+   `/v1/responses` 时改 `responses_support: "native"`。
+   自研 adapter 不在本仓库范围，`gateway` 字段就是给这类部署留的位置。
+
+5. **跑兼容矩阵回填**：`node orchestrator/src/finance/provider_matrix.ts --provider selfhosted`，
+   按结果更新 `.local/providers/selfhosted.json` 的 `matrix` 段。矩阵不全绿只用于试验。
+
+**设置页"API 接入" ≠ 产品 provider**：设置页保存的模型配置（浏览器 localStorage，
+随请求发给本机后端）只作用于自由对话 / "问 Agent" 通道；个股研究、多空辩论、回测、
+每日复盘走的是 `.local/config.json` 的产品级 provider。私有化部署两边要分别接好——
+只配设置页会出现"能聊天但研究/辩论根本没跑起来"的假象。
+
 ## 4. 加一家新的 provider
 
 1. 复制 `providers/deepseek.json` 为 `providers/<id>.json`(或放用户私有覆盖 `.local/providers/<id>.json`,同结构,优先级更高);`id` 小写字母开头,只含 `a-z0-9_-`,且与文件名一致。
@@ -158,6 +206,10 @@ agent 那一轮 4.7 分钟 —— ⚠️ 慢,turn 超时压到 5 分钟会连续
 ## 5. 常见问题
 
 - **`--provider deepseek` 报"环境变量 DEEPSEEK_API_KEY 未设置"**:密钥只从环境变量读,先 `export`。
+- **重启编排器后研究/辩论/回测全报"所有阶段都失败了:根本没跑起来",但"问 Agent"能聊**:
+  设置页的 API 接入只覆盖自由对话通道;编排引擎走 `.local/config.json` 的产品级 provider。
+  九成是重启时进程环境丢了 `env_key` 对应的变量(见 §3 自托管第 3 条),或产品 provider
+  还指向未登录的 `openai` 模板。`GET /product`(带 Bearer token)可看当前产品 provider 解析结果。
 - **报"provider xxx 不支持 auth=chatgpt_login"**:你在 `.local/config.json` / `VRA_PROVIDER_AUTH` / `--auth` 显式写了 chatgpt_login;第三方只能 api_key,改掉或删掉显式设置即可。
 - **⑦ partial**:该模型 / 协议不回传推理摘要,不影响研究运行。
 - **④ partial**:provider 把同一回合的多条工具调用串行执行,功能可用但慢。

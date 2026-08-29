@@ -34,7 +34,10 @@ test("providers:产品模板全部通过 schema;openai 为 responses 原生;国�
       assert.equal(profile.wire_api, "responses", `${id} 不能再用 chat 协议(引擎已移除)`);
       assert.equal(profile.requires_openai_auth, false);
       assert.deepEqual(profile.auth_modes, ["api_key"]);
-      assert.ok(profile.base_url!.startsWith("https://"));
+      // selfhosted 是占位模板:base_url 填的是用户本机/内网端点,http 合法(私有化部署常态);
+      // 其余云厂商模板必须是 https —— Codex 对空 base_url 回退 api.openai.com,密钥会发到错误主机
+      if (id === "selfhosted") assert.ok(profile.base_url!.startsWith("http://"), "selfhosted 占位默认 http 内网端点");
+      else assert.ok(profile.base_url!.startsWith("https://"));
     }
   }
   assert.throws(() => loadProviderProfile(REPO, path.join(REPO, ".local"), "nope"), /未知 provider/);
@@ -57,6 +60,34 @@ test("providers:带占位符的模板不能直接用 —— 选用时当场拒,�
       `${id} 应在选用时因占位符被拒`,
     );
   }
+});
+
+test("providers:selfhosted 占位模板走真实用户流程 —— 复制覆盖填端点后可用(私有化部署路径)", () => {
+  // 前提:selfhosted 模板带 {Host}:{Port} 占位,default_model 为 null
+  const tpl = JSON.parse(fs.readFileSync(path.join(REPO, "providers", "selfhosted.json"), "utf8"));
+  assert.ok(/[{<][A-Za-z_]/.test(tpl.base_url), "前提:selfhosted 模板确实带占位符");
+  assert.equal(tpl.default_model, null);
+  // ① 直接选用占位模板 → 按设计拒,而不是发一个坏 URL 出去
+  assert.throws(
+    () => loadProviderProfile(REPO, path.join(REPO, ".local"), "selfhosted"),
+    /占位符/,
+    "selfhosted 占位模板不得直接选用",
+  );
+  // ② 用户把模板复制到 <数据根>/providers/selfhosted.json,换成自己的内网 vLLM 端点与模型名
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "vra-sh-"));
+  fs.mkdirSync(path.join(repo, ".local", "providers"), { recursive: true });
+  const overlay = { ...tpl, base_url: "http://192.168.1.10:8000/v1", default_model: "qwen3-32b" };
+  fs.writeFileSync(path.join(repo, ".local", "providers", "selfhosted.json"), JSON.stringify(overlay, null, 2));
+  const loaded = loadProviderProfile(REPO, path.join(repo, ".local"), "selfhosted");
+  assert.equal(loaded.profile.base_url, "http://192.168.1.10:8000/v1", "用户覆盖优先(整份替换),http 内网端点合法");
+  assert.equal(loaded.profile.id, "selfhosted");
+  // ③ 映射到 Codex 配置:env_key 透传,密钥只经环境变量
+  const cfg = codexProviderConfig(loaded.profile) as { model_provider: string; model_providers: Record<string, Record<string, unknown>> };
+  assert.equal(cfg.model_provider, "selfhosted");
+  assert.equal(cfg.model_providers.selfhosted.base_url, "http://192.168.1.10:8000/v1");
+  assert.deepEqual(providerEnv(loaded.profile, "api_key", { SELFHOSTED_API_KEY: "k" }), { SELFHOSTED_API_KEY: "k" });
+  assert.throws(() => providerEnv(loaded.profile, "api_key", {}), /SELFHOSTED_API_KEY/);
+  fs.rmSync(repo, { recursive: true, force: true });
 });
 
 test("providers:validateProfile 拒绝密钥值 / 非 openai requires_openai_auth / openai 自定义 base_url / 非法 env_key", () => {

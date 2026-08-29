@@ -1,0 +1,26 @@
+{
+  "id": "selfhosted",
+  "name": "自托管模型（vLLM / SGLang / LM Studio / Ollama 等 OpenAI 兼容端点）",
+  "wire_api": "responses",
+  "base_url": "http://{Host}:{Port}/v1",
+  "env_key": "SELFHOSTED_API_KEY",
+  "auth_modes": ["api_key"],
+  "requires_openai_auth": false,
+  "default_model": null,
+  "responses_support": "gateway",
+  "stream_format": "responses-sse",
+  "tool_calls": true,
+  "reasoning": "none",
+  "context_limit_tokens": null,
+  "retryable_errors": ["429", "5xx", "stream-idle"],
+  "known_incompatibilities": [
+    "本模板是占位模板：base_url 的 {Host}:{Port} 与 default_model 必须先复制到 <数据根>/providers/selfhosted.json 替换为自己的端点与模型名，模板本身不能直接选用",
+    "多数 vLLM 版本 /v1/responses 对 codex 复杂请求（含 reasoning 项与 developer 角色）报 400，此时 responses_support=gateway 指你需要在中间架一层 Responses→Chat Completions 转换网关，再把 base_url 指向网关；若你的版本 /v1/responses 原生可用（如 vLLM ≥ 0.10 且模型无 chat-template 兼容问题），可改为 native",
+    "自托管端点走 http 不受 https 强制约束（见 providers.ts：仅 https 模式下的第三方模板才要求显式 https），但 base_url 必须显式给出，空值会让 Codex 回退到 api.openai.com"
+  ],
+  "verified_at": null,
+  "matrix": {
+    "status": "unverified",
+    "note": "占位模板，按实际端点跑 10 项兼容矩阵后回填"
+  }
+}

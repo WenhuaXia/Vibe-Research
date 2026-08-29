@@ -202,7 +202,8 @@ ChatGPT / Claude.ai 订阅 · OpenAI · DeepSeek · Qwen · GLM · Kimi · MiMo 
 - API 模式的 key 只保存在当前浏览器 `localStorage`，随请求交给本机后端，不写入仓库、配置文件、
   运行账本或日志。
 
-内置 provider 模板：OpenAI、DeepSeek、Qwen、GLM、Kimi、MiMo。引擎只支持 Responses API；
+内置 provider 模板：OpenAI、DeepSeek、Qwen、GLM、Kimi、MiMo，以及 `selfhosted` 自托管占位模板
+（vLLM / SGLang / LM Studio / Ollama 等 OpenAI 兼容端点，私有化部署走 §自托管模型）。引擎只支持 Responses API；
 模板存在不等于已经通过兼容矩阵，界面会区分“已实测”和“有模板、未实测”。
 
 详细说明见 [docs/model-access.md](docs/model-access.md) 和 [providers/README.md](providers/README.md)。
