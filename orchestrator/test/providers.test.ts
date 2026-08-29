@@ -69,7 +69,10 @@ test("providers:validateProfile 拒绝密钥值 / 非 openai requires_openai_aut
   assert.throws(() => validateProfile({ ...base, requires_openai_auth: true }, "t"), /requires_openai_auth/);
   assert.throws(() => validateProfile({ ...base, id: "openai", wire_api: "responses" }, "t"), /base_url 必须为 null/);
   assert.throws(() => validateProfile({ ...base, env_key: "PATH" }, "t"), /schema/);
-  assert.throws(() => validateProfile({ ...base, base_url: "http://insecure" }, "t"), /schema/);
+  // http(s) 均合法:自托管网关 / 本机模型(局域网 vLLM、本地代理)普遍是 http,与 assertHttp 口径一致;
+  // 非 http(s) 协议仍被 schema 拒
+  assert.equal(validateProfile({ ...base, base_url: "http://10.0.0.5:8000/v1" }, "t").id, "x");
+  assert.throws(() => validateProfile({ ...base, base_url: "ftp://insecure" }, "t"), /schema/);
   assert.throws(() => validateProfile({ ...base, extra: 1 }, "t"), /schema/);
 });
 
@@ -160,7 +163,11 @@ test("providers:组合约束——第三方 base_url 不得为空(Codex 会回�
   const base = loadProviderProfile(REPO, path.join(REPO, ".local"), "deepseek").profile;
   const v = (patch: Record<string, unknown>) => () => validateProfile({ ...base, ...patch }, "t");
   assert.doesNotThrow(v({}));
-  assert.throws(v({ base_url: null }), /必须显式给出 https base_url/);
+  assert.throws(v({ base_url: null }), /必须显式给出 http\(s\) base_url/);
+  // base_url 放宽到 http(s):自托管网关 / 本机模型(如局域网 vLLM、本地代理)普遍是 http,
+  // 与 assertHttp 放行 http(s) 的既有口径一致;非 http(s) 协议仍被 schema 拒
+  assert.doesNotThrow(v({ base_url: "http://10.0.0.5:8000/v1" }));
+  assert.throws(v({ base_url: "ftp://x/v1" }), /schema/);
   assert.throws(v({ auth_modes: ["api_key", "chatgpt_login"] }), /只能 auth_modes=\["api_key"\]/);
   assert.throws(v({ auth_modes: ["api_key", "api_key"] }), /schema/);
   // ⚠️ "responses_support=native 要求 wire_api=responses" 这条**现在够不到**:

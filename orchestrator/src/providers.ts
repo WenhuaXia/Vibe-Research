@@ -60,7 +60,7 @@ export const providerProfileSchema = {
   required: ["id", "name", "wire_api", "base_url", "env_key", "auth_modes", "requires_openai_auth", "default_model", "responses_support"],
   properties: {
     id: { type: "string", pattern: "^[a-z][a-z0-9_-]{0,31}$" }, name: { type: "string", minLength: 1 }, wire_api: { type: "string", enum: ["responses", "chat"] },
-    base_url: { type: ["string", "null"], pattern: "^https://[^\\s]+$" }, env_key: { type: "string", pattern: ENV_KEY_RE, not: { enum: FORBIDDEN_ENV } },
+    base_url: { type: ["string", "null"], pattern: "^https?://[^\\s]+$" }, env_key: { type: "string", pattern: ENV_KEY_RE, not: { enum: FORBIDDEN_ENV } },
     auth_modes: { type: "array", minItems: 1, uniqueItems: true, items: { type: "string", enum: ["chatgpt_login", "api_key"] } }, requires_openai_auth: { type: "boolean" }, default_model: { type: ["string", "null"] },
     responses_support: { type: "string", enum: ["native", "gateway", "none"] }, stream_format: { type: "string" }, tool_calls: { type: "boolean" }, reasoning: { type: "string" }, context_limit_tokens: { type: ["integer", "null"], minimum: 1 },
     retryable_errors: { type: "array", items: { type: "string" } }, known_incompatibilities: { type: "array", items: { type: "string" } },
@@ -122,7 +122,7 @@ export function validateProfile(p: unknown, label: string): ProviderProfileFile 
   // 组合约束(单字段合法 ≠ 契约自洽)
   if (prof.id !== "openai") {
     // Codex 对空 base_url 会回退到 api.openai.com/v1(codex-rs/model-provider-info/src/lib.rs to_api_provider),第三方密钥会发到错误主机 → 必须显式 https
-    if (!prof.base_url) throw new Error(`${label}:非 openai provider 必须显式给出 https base_url(空值会让 Codex 回退到 OpenAI 官方端点)`);
+    if (!prof.base_url) throw new Error(`${label}:非 openai provider 必须显式给出 http(s) base_url(空值会让 Codex 回退到 OpenAI 官方端点)`);
     // 模板里有需要用户替换的占位(如百炼的 {WorkspaceId})。没换就直接发请求,会得到一个看不懂的 404/401
     const ph = /[{<]([A-Za-z_][A-Za-z0-9_]*)[}>]/.exec(prof.base_url);
     if (ph)
