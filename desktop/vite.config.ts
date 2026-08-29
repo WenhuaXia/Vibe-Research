@@ -46,9 +46,12 @@ export default defineConfig({
         rewrite: (p) => p.replace(/^\/api/, ""),
         configure(proxy) {
           proxy.on("proxyReq", (proxyReq) => {
+            // 🔴 LAN 部署(192.168.x 访问):浏览器 Origin 是局域网地址,而后端 crossSiteReject
+            //    只认回环 Origin(CSRF 防护)。changeOrigin 只重写 Host 不重写 Origin(实测),
+            //    这里显式改写成回环 —— 本机代理就是可信跳板,以它的名义转发。
+            proxyReq.setHeader("origin", "http://127.0.0.1:5930");
             const token = apiToken();
             if (token) proxyReq.setHeader("Authorization", `Bearer ${token}`);
-            // 后端 crossSiteReject 只接受本机 Origin;浏览器带的是 127.0.0.1:5930,本机、放行。
           });
           proxy.on("error", (err, _req, res) => {
             // 默认错误页是一段 HTML,前端 res.json() 会炸在"Unexpected token <",把真正原因埋掉
