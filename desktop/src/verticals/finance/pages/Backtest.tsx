@@ -12,8 +12,10 @@ import { addNote, loadNotes, type Note } from "@/lib/notes";
 import { useAiPage } from "../../../core/ai/pageContext";
 
 interface Message { id: string; role: "user" | "agent"; content: string }
-const id = () => crypto.randomUUID();
-const session = () => `bt-${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`;
+// 不用 crypto.randomUUID：明文 HTTP 的局域网访问（非安全上下文）下浏览器不提供它，
+// 而这里只需要"不重"，不需要密码学强度（与 core/ai/threads.ts newThreadId 同惯例）
+const id = () => `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+const session = () => `bt-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`.slice(0, 24);
 
 export function Backtest() {
   const [messages, setMessages] = useState<Message[]>([]);

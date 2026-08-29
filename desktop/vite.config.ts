@@ -36,12 +36,13 @@ export default defineConfig({
   resolve: { alias: { "@": path.resolve(here, "src/verticals/finance") } },
   server: {
     // 🔴 必须写死 IPv4:默认 localhost 在本机解析成 [::1],而后端绑的是 127.0.0.1,对不上会 502
-    host: "127.0.0.1",
+    // LAN 部署(192.168.248.5 访问):host 放开 0.0.0.0;API 端口 8766 —— 8765 被 feishu-card 自治系统占用
+    host: "0.0.0.0",
     port: 5930,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8765",
-        changeOrigin: false,
+        target: "http://127.0.0.1:8766",
+        changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
         configure(proxy) {
           proxy.on("proxyReq", (proxyReq) => {
