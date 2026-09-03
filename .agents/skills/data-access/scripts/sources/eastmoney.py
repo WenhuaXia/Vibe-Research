@@ -304,11 +304,10 @@ def dividend_history(code: str, page_size: int = 20) -> list[dict]:
 
 
 # ---------- 5.1 个股新闻 / 5.3 全球资讯 ----------
-def eastmoney_stock_news(code: str, page_size: int = 20) -> list[dict]:
-    """东财个股新闻(JSONP 搜索接口):[{title, content, time, source, url}]"""
+def _stock_news_via_jsonp(digits: str, page_size: int) -> list[dict]:
+    """东财个股新闻 JSONP 搜索接口（原始实现，作兜底）。"""
     import json as _json
     import re as _re
-    digits, _ = norm_ticker(code, stock_only=True)
     inner = _json.dumps({"uid": "", "keyword": digits, "type": ["cmsArticleWebOld"], "client": "web", "clientType": "web", "clientVersion": "curr",
                          "param": {"cmsArticleWebOld": {"searchScope": "default", "sort": "default", "pageIndex": 1, "pageSize": page_size, "preTag": "", "postTag": ""}}}, separators=(",", ":"))
     r = em("https://search-api-web.eastmoney.com/search/jsonp", params={"cb": "jQuery_news", "param": inner}, headers={"User-Agent": UA, "Referer": "https://so.eastmoney.com/"}, timeout=15, ext="js")
@@ -317,6 +316,42 @@ def eastmoney_stock_news(code: str, page_size: int = 20) -> list[dict]:
     arts = (d.get("result") or {}).get("cmsArticleWebOld") or []
     return [{"title": _re.sub(r"<[^>]+>", "", a.get("title", "")), "content": _re.sub(r"<[^>]+>", "", a.get("content", ""))[:200], "time": a.get("date", ""),
              "source": a.get("mediaName", ""), "url": a.get("url", "")} for a in arts]
+
+
+def _stock_news_via_akshare(digits: str, page_size: int) -> list[dict]:
+    """akshare stock_news_em：同走东财 news 接口但带完整浏览器上下文，反爬下更稳。
+
+    东财 search/jsonp 的 cmsArticleWebOld 返回类型对无浏览器上下文的纯服务端调用
+    已恒为 0 条（只回 passportWeb），导致原实现报「东财个股新闻为空」。akshare
+    封装的 stock_news_em 带 sec-fetch/cookie/referer 指纹，实测稳定。
+    """
+    import re as _re
+    import akshare as ak
+    df = ak.stock_news_em(symbol=digits)
+    if df is None or df.empty:
+        return []
+    out = []
+    for _, row in df.head(page_size).iterrows():
+        out.append({
+            "title": _re.sub(r"<[^>]+>", "", str(row.get("新闻标题", ""))),
+            "content": _re.sub(r"<[^>]+>", "", str(row.get("新闻内容", "")))[:200],
+            "time": str(row.get("发布时间", "")),
+            "source": str(row.get("文章来源", "")),
+            "url": str(row.get("新闻链接", "")),
+        })
+    return out
+
+
+def eastmoney_stock_news(code: str, page_size: int = 20) -> list[dict]:
+    """东财个股新闻:[{title, content, time, source, url}]。akshare 优先, JSONP 兜底。"""
+    digits, _ = norm_ticker(code, stock_only=True)
+    try:
+        rows = _stock_news_via_akshare(digits, page_size)
+        if rows:
+            return rows
+    except Exception:
+        pass  # akshare 不可用/接口变 → 退回 JSONP
+    return _stock_news_via_jsonp(digits, page_size)
 
 
 def eastmoney_global_news(page_size: int = 50) -> list[dict]:
