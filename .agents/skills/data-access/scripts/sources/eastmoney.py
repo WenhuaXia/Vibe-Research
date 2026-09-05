@@ -343,15 +343,25 @@ def _stock_news_via_akshare(digits: str, page_size: int) -> list[dict]:
 
 
 def eastmoney_stock_news(code: str, page_size: int = 20) -> list[dict]:
-    """东财个股新闻:[{title, content, time, source, url}]。akshare 优先, JSONP 兜底。"""
+    """东财个股新闻:[{title, content, time, source, url}]。JSONP 为主, akshare 兜底。
+
+    按上游 review 收口:simonlin1212 在新加坡出口实测 JSONP 正常返回 10 条,
+    0 条是境内部分网络/代理被东财按请求指纹拦截,不是接口死了。
+    故 JSONP 保持主路径(质量更高:标题括号完整),仅当返回 0 条或抛错时
+    回落 akshare,让被拦环境也能拿到数据。两条路径产物都过 <[^>]+> 清洗。
+    """
     digits, _ = norm_ticker(code, stock_only=True)
     try:
-        rows = _stock_news_via_akshare(digits, page_size)
+        rows = _stock_news_via_jsonp(digits, page_size)
         if rows:
             return rows
     except Exception:
-        pass  # akshare 不可用/接口变 → 退回 JSONP
-    return _stock_news_via_jsonp(digits, page_size)
+        pass  # JSONP 抛错/超时 → 回落 akshare
+    try:
+        return _stock_news_via_akshare(digits, page_size)
+    except Exception:
+        pass  # akshare 也不可用 → 返回空,调用方按"东财个股新闻为空"处理
+    return []
 
 
 def eastmoney_global_news(page_size: int = 50) -> list[dict]:
