@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { FlaskConical, Play, FileText, Loader2, GitCompare } from "lucide-react";
+import { FlaskConical, Play, FileText, Loader2, GitCompare, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { ReportView } from "@/components/ui/ReportView";
 import { Disclaimer } from "@/components/ui/Disclaimer";
 import { useAiPage } from "../../../core/ai/pageContext";
 import { backend, ApiError, type RunListItem, type ResearchStatus, type AlertDiff } from "@/lib/backend";
@@ -70,6 +71,22 @@ export function Research() {
       .then((r) => { setRuns(r); setRunsErr(null); })
       // 🔴 不写成空数组 —— 空数组会被读成"确实一次都没跑过"
       .catch((e) => setRunsErr(e instanceof ApiError ? e.message : String(e)));
+  /** 删除一次归档(不可逆,先确认);进行中 run 后端会拒绝并给出原因 */
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [delErr, setDelErr] = useState("");
+  const removeRun = async (id: string) => {
+    if (!window.confirm(`删除这次研究归档？\n\n${id}\n\n会删掉它的报告 / 证据 / 计算，不可恢复。`)) return;
+    setDeleting(id); setDelErr("");
+    try {
+      await backend.deleteRun(id);
+      if (report?.run_id === id) setReport(null); // 删的是当前打开的报告
+      await loadRuns();
+    } catch (e) {
+      setDelErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setDeleting(null);
+    }
+  };
   useEffect(() => {
     void loadRuns();
     // 组件卸载要停掉轮询，否则它会在后台一直打接口
@@ -323,7 +340,7 @@ export function Research() {
             <h3 className="font-semibold">{report.run_id} 的报告</h3>
           </div>
           {report.report
-            ? <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/20 p-3 text-xs leading-relaxed">{report.report}</pre>
+            ? <div className="max-h-[70vh] overflow-auto rounded-lg bg-muted/10 p-4"><ReportView content={report.report} /></div>
             : <p className="text-sm text-muted-foreground">这次运行没有产出报告（多半是中途没跑完）。</p>}
         </GlassCard>
       )}
@@ -337,16 +354,39 @@ export function Research() {
           <p className="text-sm text-muted-foreground">还没有研究运行。上面填一个代码就能跑第一次。</p>
         ) : (
           <div className="space-y-1.5">
-            {runs.map((r) => (
-              <button
-                key={r.run_id}
-                onClick={() => void openReport(r.run_id)}
-                className="flex w-full items-center gap-3 rounded-md border-b border-border/30 px-1 py-2.5 text-left text-sm last:border-0 hover:bg-muted/30"
-              >
-                <span className="font-medium">{r.name ?? "个股"}</span>
-                <span className="font-mono text-xs text-muted-foreground">{r.symbol ?? "—"}</span>
-              </button>
-            ))}
+            {runs.map((r) => {
+              const running = r.status === "running";
+              return (
+                <div
+                  key={r.run_id}
+                  className="group flex w-full cursor-pointer items-center gap-3 rounded-md border-b border-border/30 px-1 py-2.5 text-sm last:border-0 hover:bg-muted/30"
+                  onClick={() => void openReport(r.run_id)}
+                  title={r.run_id}
+                >
+                  <span className="font-medium">{r.name ?? "个股"}</span>
+                  <span className="font-mono text-xs text-muted-foreground">{r.symbol ?? "—"}</span>
+                  <span
+                    className={`ml-auto rounded px-1.5 py-0.5 text-[10px] ${
+                      running ? "bg-primary/15 text-primary" : "bg-muted/60 text-muted-foreground"
+                    }`}
+                  >
+                    {running ? "进行中" : (STATUS_CN[r.status ?? ""] ?? r.status ?? "?")}
+                  </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); void removeRun(r.run_id); }}
+                    disabled={running || deleting === r.run_id}
+                    className="rounded p-1 text-muted-foreground/50 opacity-0 transition group-hover:opacity-100 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+                    title={running ? "研究进行中,跑完才能删" : "删除这次研究归档"}
+                    aria-label="删除"
+                  >
+                    {deleting === r.run_id
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <Trash2 className="h-4 w-4" />}
+                  </button>
+                </div>
+              );
+            })}
+            {delErr && <p className="pt-1 text-xs text-destructive">删除失败：{delErr}</p>}
           </div>
         )}
       </GlassCard>
