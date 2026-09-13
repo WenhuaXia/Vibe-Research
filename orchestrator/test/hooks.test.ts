@@ -78,7 +78,7 @@ function runHook(name: string, cwd: string, input: Record<string, unknown>): { s
   return { stdout: p.stdout, status: p.status };
 }
 
-test("Stop 钩子脚本:缺产物 → block(最多 MAX_STOP_BLOCKS 次)→ 仍不合格则 continue:false + 终止标记(不算正常收工);产物合格 → 放行;无上下文 → 放行但出声", () => {
+test("Stop 钩子脚本:缺产物 → block(最多 MAX_STOP_BLOCKS 次无推进空转)→ 仍不合格则 continue:false + 终止标记(不算正常收工);产物合格 → 放行;无上下文 → 放行但出声", () => {
   const repo = tmpRepo();
   const cfg = makeConfig({ symbol: "300308", market: "SZ", repoRoot: repo, runId: "r1" });
   const runDir = cfg.runDir;
@@ -91,9 +91,9 @@ test("Stop 钩子脚本:缺产物 → block(最多 MAX_STOP_BLOCKS 次)→ 仍�
     r = runHook("stop.ts", runDir, { hook_event_name: "Stop", stop_hook_active: i > 0 });
     const out = JSON.parse(r.stdout);
     assert.equal(out.decision, "block");
-    assert.ok(out.reason.includes("缺产物:stages/profile.json") && out.reason.includes(`第 ${i + 1}/${MAX_STOP_BLOCKS} 次`));
+    assert.ok(out.reason.includes("缺产物:stages/profile.json") && out.reason.includes(`无推进空转 ${i + 1}/${MAX_STOP_BLOCKS}`));
   }
-  r = runHook("stop.ts", runDir, { hook_event_name: "Stop", stop_hook_active: true }); // 第三次仍缺 → 终止本轮
+  r = runHook("stop.ts", runDir, { hook_event_name: "Stop", stop_hook_active: true }); // 第 MAX+1 次仍无推进 → 终止本轮
   const out = JSON.parse(r.stdout);
   assert.equal(out.continue, false);
   const marker = readStopFailed(runDir);
@@ -111,6 +111,57 @@ test("Stop 钩子脚本:缺产物 → block(最多 MAX_STOP_BLOCKS 次)→ 仍�
   r = runHook("stop.ts", other, { hook_event_name: "Stop", stop_hook_active: false });
   assert.equal(r.stdout, "");
   assert.ok(readHookLog(other).some((e) => e.decision === "error" && /不一致/.test(e.reason ?? "")));
+});
+
+test("Stop 推进感知:新增合法 calc 记录 ⇒ 空转计数重置,合规攒算流不被收工预算误杀(2026-09-05 600519 复现)", () => {
+  const repo = tmpRepo();
+  const cfg = makeConfig({ symbol: "600519", market: "SH", repoRoot: repo, runId: "r2" });
+  const runDir = cfg.runDir;
+  writeJson(path.join(runDir, "manifest.json"), { run_id: "r2" });
+  writeHookContext(cfg, "financials", 1);
+  const calcDir = path.join(runDir, "calcs"); fs.mkdirSync(calcDir, { recursive: true });
+  // 模拟合规攒算流:每轮落一个新合法 calc(quarterize→latest_quarter→ttm_sum→yoy→qoq…),
+  // 直到第 MAX+3 轮才写 stage 文件 —— 旧逻辑(无推进感知,MAX=2)在第 3 轮就被终止。
+  let r: ReturnType<typeof runHook>;
+  for (let i = 0; i <= MAX_STOP_BLOCKS + 2; i++) {
+    r = runHook("stop.ts", runDir, { hook_event_name: "Stop", stop_hook_active: i > 0 });
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.decision, "block", `第 ${i + 1} 轮有新 calc 落盘,必须继续 block 而不是终止`);
+    assert.ok(!("continue" in out), "有推进时不允许 continue:false");
+    // 本轮结束后再落一个新 calc(下一轮拦截时即为"新合法记录")
+    writeJson(path.join(calcDir, `calc_${i}.json`), { calculation_id: `calc-${i}`, function: "ttm_sum", output: { status: "ok", value: 1, details: {} } });
+  }
+  const blocks = readHookLog(runDir).filter((e) => e.decision === "block");
+  assert.equal(blocks.length, MAX_STOP_BLOCKS + 3);
+  assert.ok(blocks.every((b) => (b.idleStreak ?? 1) <= 2), "每次拦截都有新 calc ⇒ idleStreak 不应超过 2");
+  assert.equal(readStopFailed(runDir), null, "全程不得产生终止标记");
+});
+
+test("Stop 推进感知:仅 mtime/文件数变化但无合法 calc(参数文件、函数清单)⇒ 不算推进,空转照累计", () => {
+  const repo = tmpRepo();
+  const cfg = makeConfig({ symbol: "600519", market: "SH", repoRoot: repo, runId: "r3" });
+  const runDir = cfg.runDir;
+  writeJson(path.join(runDir, "manifest.json"), { run_id: "r3" });
+  writeHookContext(cfg, "financials", 1);
+  const calcDir = path.join(runDir, "calcs"); fs.mkdirSync(calcDir, { recursive: true });
+  let r: ReturnType<typeof runHook>;
+  for (let i = 0; i <= MAX_STOP_BLOCKS; i++) {
+    r = runHook("stop.ts", runDir, { hook_event_name: "Stop", stop_hook_active: i > 0 });
+    const out = JSON.parse(r.stdout);
+    if (i < MAX_STOP_BLOCKS) {
+      assert.equal(out.decision, "block");
+      assert.ok(out.reason.includes(`无推进空转 ${i + 1}/${MAX_STOP_BLOCKS}`), "无合法 calc ⇒ 空转必须逐次累计");
+    } else {
+      assert.equal(out.continue, false, "纯参数文件/清单写盘 MAX 次后必须终止");
+      break;
+    }
+    // 只落"非计算记录"的文件:args 前缀参数文件 + calculate 函数清单(00_list.json 形态)
+    writeJson(path.join(calcDir, `args_${i}.json`), { period: "TTM", unit: "亿元" });
+    writeJson(path.join(calcDir, "00_list.json"), { calc_version: "0.3.2", functions: { ttm_sum: "近四季合计" } });
+  }
+  const marker = readStopFailed(runDir);
+  assert.ok(marker && marker.stage === "financials" && marker.attempt === 1);
+  assert.equal(marker.blocks, MAX_STOP_BLOCKS);
 });
 
 test("PreToolUse 钩子脚本:自跑取数脚本 / 读禁区 / 改写受保护产物 / 联网 → block;普通 calc 命令 → 放行;apply_patch 触及 fetch/ → block", () => {
