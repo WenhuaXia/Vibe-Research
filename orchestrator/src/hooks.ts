@@ -20,8 +20,14 @@ export const HOOK_CONTEXT_REL = path.join(".vibe", "hook-context.json");
 export const HOOK_LOG_REL = path.join(".vibe", "hooks.log");
 /** Stop 钩子多次拦截仍不合格时写的终止标记(编排器据此把该 turn 判为失败,进入补跑) */
 export const STOP_FAILED_REL = path.join(".vibe", "stop-failed.json");
-/** 同一 (stage, attempt) 内 Stop 最多 block 的次数(给 agent 两次当场修的机会),之后终止本轮 */
-export const MAX_STOP_BLOCKS = 2;
+/** 同一 (stage, attempt) 内 Stop 最多 block 的**空转**次数,之后终止本轮。
+ *  2 次太紧:合规工作流是"先攒 N 轮确定性计算(拆季→最新季→滚动合计→同比→环比)→
+ *  最后一步才写 stage 文件",2026-09-05 一次真实 run 实测计算阶段 3-5 轮全对、
+ *  stage 文件还没写就被预算烧尽终止,产物在后续轮才补写落盘,编排器又不在事后复核
+ *  ⇒ 阶段永久 failed(收工时机误杀,不是能力问题)。
+ *  6 次给合规攒算流留足预算;配合 stop.ts 的**推进感知**(两次拦截之间有新落盘且是
+ *  合法计算记录 ⇒ 计数回零),这里的上限只约束"无推进的空转",不是总拦截数。 */
+export const MAX_STOP_BLOCKS = 6;
 export interface StopFailedMarker { stage: string; attempt: number; problems: string[]; blocks: number; ts: string }
 export function readStopFailed(runDir: string): StopFailedMarker | null { return readJsonIfExists<StopFailedMarker>(path.join(runDir, STOP_FAILED_REL)); }
 export function clearStopFailed(runDir: string): void { const p = path.join(runDir, STOP_FAILED_REL); if (fs.existsSync(p)) fs.rmSync(p); }
@@ -198,7 +204,7 @@ export function readHookContext(runDir: string): HookContext | null {
 }
 
 /** 钩子自己的日志(每行一个 JSON;诊断用,不是真理源) */
-export interface HookLogEntry { ts: string; hook: "stop" | "pre_tool_use"; stage?: string; attempt?: number; decision: "allow" | "block" | "stop" | "error"; reason?: string; tool?: string; command?: string; stop_hook_active?: boolean }
+export interface HookLogEntry { ts: string; hook: "stop" | "pre_tool_use"; stage?: string; attempt?: number; decision: "allow" | "block" | "stop" | "error"; reason?: string; tool?: string; command?: string; stop_hook_active?: boolean; /** Stop 推进感知:该次拦截时的合法 calculation_id 集合 + 连续无推进空转计数 */ calcSet?: string[]; idleStreak?: number }
 export function appendHookLog(runDir: string, entry: HookLogEntry): void {
   const p = path.join(runDir, HOOK_LOG_REL);
   fs.mkdirSync(path.dirname(p), { recursive: true });

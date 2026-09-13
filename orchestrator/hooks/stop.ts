@@ -58,19 +58,51 @@ async function main(): Promise<void> {
     appendHookLog(runDir, { ts: ts(), hook: "stop", stage, attempt: ctx.attempt, decision: "allow", stop_hook_active: !!input.stop_hook_active });
     return;
   }
-  const priorBlocks = readHookLog(runDir).filter((e) => e.hook === "stop" && e.decision === "block" && e.stage === stage && e.attempt === ctx.attempt).length;
-  if (priorBlocks < MAX_STOP_BLOCKS) {
-    const reason = `【Stop 钩子】本阶段(${stage})还不能收工(第 ${priorBlocks + 1}/${MAX_STOP_BLOCKS} 次提醒),请先修好再结束本轮:\n- ${problems.join("\n- ")}`.slice(0, 1800);
-    appendHookLog(runDir, { ts: ts(), hook: "stop", stage, attempt: ctx.attempt, decision: "block", reason, stop_hook_active: !!input.stop_hook_active });
+  const curCalcSet = validCalcSet(runDir); // 当前合法计算记录集合(推进判据,见下方说明)
+  const priorBlocks = readHookLog(runDir).filter((e) => e.hook === "stop" && e.decision === "block" && e.stage === stage && e.attempt === ctx.attempt);
+  const last = priorBlocks[priorBlocks.length - 1];
+  // 推进感知(治"收工预算在写 stage 文件前烧尽"的误杀):
+  // 合规工作流是"攒 N 轮 calc(quarterize→latest_quarter→ttm_sum→yoy→qoq)→ 最后一步才写 stage 文件",
+  // 模型每轮想收工时 stage 文件还没写,旧逻辑每轮都计一次 block,第 3-5 轮还在攒 calc 就被 MAX 次烧尽终止,
+  // stage 文件在后续轮才补写 ⇒ 阶段永久 failed(2026-09-05 茅台 600519 run 实测)。
+  // 判据(回应 review"仅 mtime 变化不足以证明有效进展"):两次拦截之间出现了**新的合法计算记录**
+  // (JSON 可解析 + calculation_id 为 string,与 merge.ts 的收数口径一致)才算推进;agent 写的
+  // args_*/sq_* 参数文件、function 清单(00_list.json)无 calculation_id,不算推进,防止用无意义写盘刷掉预算。
+  // 连续**无推进**的空转 block 累计到 MAX 才终止;一旦有新合法 calc 落盘,计数回 1。
+  const isNewCalc = (cur: string[], prev: string[] | undefined): boolean =>
+    prev === undefined ? true : cur.some((id) => !prev.includes(id));
+  const prevStreak = last && typeof last.idleStreak === "number" ? last.idleStreak : 0;
+  const idleStreak = isNewCalc(curCalcSet, last?.calcSet) ? 1 : prevStreak + 1;
+  if (idleStreak <= MAX_STOP_BLOCKS) {
+    const reason = `【Stop 钩子】本阶段(${stage})还不能收工(无推进空转 ${idleStreak}/${MAX_STOP_BLOCKS}),请先修好再结束本轮;有新增计算落盘则继续,不受此上限约束:\n- ${problems.join("\n- ")}`.slice(0, 1800);
+    appendHookLog(runDir, { ts: ts(), hook: "stop", stage, attempt: ctx.attempt, decision: "block", reason, stop_hook_active: !!input.stop_hook_active, calcSet: curCalcSet, idleStreak });
     process.stdout.write(JSON.stringify({ decision: "block", reason }));
     return;
   }
-  // 拦够次数仍不合格:终止本轮,留标记给编排器(这轮按失败处理并补跑),不算正常收工
-  const marker: StopFailedMarker = { stage, attempt: ctx.attempt, problems: problems.slice(0, 8), blocks: priorBlocks, ts: ts() };
+  // 空转拦够次数仍不合格:终止本轮,留标记给编排器(这轮按失败处理并补跑),不算正常收工
+  const marker: StopFailedMarker = { stage, attempt: ctx.attempt, problems: problems.slice(0, 8), blocks: prevStreak || MAX_STOP_BLOCKS, ts: ts() };
   writeJson(path.join(runDir, STOP_FAILED_REL), marker);
-  const stopReason = `【Stop 钩子】已提醒 ${priorBlocks} 次仍不合格,终止本轮交编排器补跑:${problems.slice(0, 3).join("; ")}`.slice(0, 1000);
-  appendHookLog(runDir, { ts: ts(), hook: "stop", stage, attempt: ctx.attempt, decision: "stop", reason: stopReason, stop_hook_active: !!input.stop_hook_active });
+  const stopReason = `【Stop 钩子】无有效计算推进已提醒 ${prevStreak || MAX_STOP_BLOCKS} 次仍不合格,终止本轮交编排器补跑:${problems.slice(0, 3).join("; ")}`.slice(0, 1000);
+  appendHookLog(runDir, { ts: ts(), hook: "stop", stage, attempt: ctx.attempt, decision: "stop", reason: stopReason, stop_hook_active: !!input.stop_hook_active, calcSet: curCalcSet, idleStreak });
   process.stdout.write(JSON.stringify({ continue: false, stopReason, systemMessage: stopReason }));
+}
+
+/** 列出 calcs/ 下**合法计算记录**的 calculation_id 集合(排序)。
+ * 合法 = JSON 可解析且 calculation_id 为非空 string —— 与 merge.ts loadCalcs 的收数口径一致。
+ * agent 往 calcs/ 写的临时参数文件(args 前缀、sq 前缀)、function 清单(无 calculation_id)不算,
+ * 这正是"仅看 mtime 会误判推进"被排除的原因。 */
+function validCalcSet(runDir: string): string[] {
+  const dir = path.join(runDir, "calcs");
+  if (!fs.existsSync(dir)) return [];
+  const ids: string[] = [];
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith(".json")) continue;
+    let rec: unknown;
+    try { rec = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); } catch { continue; }
+    if (rec && typeof rec === "object" && typeof (rec as { calculation_id?: unknown }).calculation_id === "string"
+      && (rec as { calculation_id: string }).calculation_id.length > 0) ids.push((rec as { calculation_id: string }).calculation_id);
+  }
+  return ids.sort();
 }
 
 main().catch((e) => { process.stderr.write(`[vibe stop hook] 顶层异常,放行:${e instanceof Error ? e.message : String(e)}\n`); }).finally(() => process.exit(0));
