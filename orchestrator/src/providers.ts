@@ -74,15 +74,63 @@ export interface ProviderProfileFile {
 }
 
 export const PROVIDER_ID_RE = /^[a-z][a-z0-9_-]{0,31}$/;
-/** URL 的共同边界:远程 HTTPS;HTTP 仅显式本机回环,不接受 URL 内凭据。 */
+
+/**
+ * HTTP(明文)允许的主机:本机回环 + 局域网私有/链路本地地址。
+ * 这是**本机桌面产品**:填 URL 的人就是这台机器的主人,局域网 vLLM / Ollama / 自建网关是
+ * 文档化的正当用法,封私网 IP 会打死真实用户(runtime_provider.ts 的 SSRF 讨论同样适用)。
+ * 公网 hostname 一律必须 HTTPS —— 明文打到公网,密钥就跟着走公网了。
+ *
+ * 🔴 判定必须落在**原始 host 串**上,不能用 url.hostname:WHATWG URL 会把
+ * "2130706433" 归一成 "127.0.0.1"、把 "127.1" 归一成回环 —— 信归一结果等于信
+ * 一个我们没逐字符核过的写法。原始串只放行四类:localhost、字面点分十进制 IPv4、
+ * 中括号 IPv6;其余(域名/端口前缀等)直接拒,URL 解析只用于后续合法性校验。
+ */
+function allowedIPv4Literal(host: string): boolean {
+  const m = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.exec(host);
+  if (!m) return false;
+  const [a, b] = m.slice(1).map(Number);
+  if (a > 255 || b > 255) return false;
+  if (a === 127) return true;                     // 回环 127/8
+  if (a === 10) return true;                      // 私有 10/8
+  if (a === 172 && b >= 16 && b <= 31) return true;  // 私有 172.16/12(第二段 16-31)
+  if (a === 192 && b === 168) return true;        // 私有 192.168/16
+  if (a === 169 && b === 254) return true;        // 链路本地 169.254/16
+  return false;
+}
+function allowedIPv6Literal(host: string): boolean {
+  // URL 里 IPv6 必带中括号
+  const ip = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : null;
+  if (!ip) return false;
+  if (ip === "::1") return true;
+  const seg = ip.split(":")[0].toLowerCase();
+  if (!/^[0-9a-f]{1,4}$/.test(seg)) return false;
+  if (/^fe[89ab]/.test(seg)) return true;   // 链路本地 fe80::/10
+  return /^f[cd]/.test(seg);                // ULA fc00::/7
+}
+/** 原始 host 串(去端口/路径/凭据前缀后)是否属于允许的明文范围 */
+function rawHostAllowed(value: string): boolean {
+  let rest = value;
+  const i = rest.indexOf("://");
+  if (i >= 0) rest = rest.slice(i + 3);
+  rest = rest.split(/[/?#]/, 1)[0];
+  if (rest.includes("@")) return false;    // 凭据混进 host 段,直接拒
+  // 去端口:中括号 IPv6 的 host 止于 "]",其余第一个 ":" 之前
+  const host = rest.startsWith("[")
+    ? rest.slice(0, rest.indexOf("]") + 1 || undefined)
+    : rest.split(":", 1)[0];
+  return host.toLowerCase() === "localhost" || allowedIPv4Literal(host) || allowedIPv6Literal(host);
+}
+
+/** URL 的共同边界:公网 HTTPS;HTTP 允许本机回环与局域网私有地址,不接受 URL 内凭据。 */
 export function providerUrlError(value: string): string | null {
   let url: URL;
   try { url = new URL(value); } catch { return "模型地址不是合法 URL"; }
   if (/[\\\s]/.test(value)) return "模型地址不能包含空白或反斜杠";
   if (url.username || url.password || url.search || url.hash) return "模型地址不能携带用户名密码、查询参数或片段;请把凭据填到 API Key";
   if (url.protocol === "https:") return null;
-  if (url.protocol === "http:" && /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(value)) return null;
-  return "远程模型地址必须使用 HTTPS;HTTP 仅允许 localhost、127.0.0.1 或 [::1] 的本机服务";
+  if (url.protocol === "http:" && rawHostAllowed(value)) return null;
+  return "公网模型地址必须使用 HTTPS;HTTP 仅允许本机(localhost / 127.x)与局域网私网地址(10.x / 172.16-31.x / 192.168.x)";
 }
 const ENV_KEY_RE = "^[A-Z][A-Z0-9_]*$";
 const FORBIDDEN_ENV = ["PATH", "HOME", "USER", "SHELL", "CODEX_HOME", "TMPDIR", "LANG", "TERM"];

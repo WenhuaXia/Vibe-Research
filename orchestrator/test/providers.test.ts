@@ -72,7 +72,8 @@ test("#34 selfhosted 覆盖流程保留未验证与远程 HTTPS 边界", () => {
     const profile = loadProviderProfile(REPO, dataRoot, "selfhosted").profile;
     assert.equal(profile.base_url, "http://127.0.0.1:11434/v1");
     assert.equal(profile.default_model, "test-model");
-    assert.throws(() => validateProfile({ ...profile, base_url: "http://192.168.1.10:8000/v1" }, "t"), /HTTPS/);
+    assert.throws(() => validateProfile({ ...profile, base_url: "http://example.com:8000/v1" }, "t"), /HTTPS/);
+    assert.doesNotThrow(() => validateProfile({ ...profile, base_url: "http://192.168.1.10:8000/v1" }, "t"));
     assert.throws(() => validateProfile({ ...profile, base_url: "ftp://example.com/v1" }, "t"), /schema/);
     assert.doesNotThrow(() => validateProfile({ ...profile, base_url: "https://model.example.com/v1" }, "t"));
   } finally { fs.rmSync(dataRoot, { recursive: true, force: true }); }

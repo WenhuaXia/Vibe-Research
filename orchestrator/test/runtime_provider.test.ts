@@ -78,14 +78,14 @@ test("runtime provider:自填端点合成的档案要过契约校验,协议不�
   assert.equal(code(() => resolveRuntimeProvider(REPO, DATA, { provider: "custom", baseURL: "https://a.b/v1" }, BASE_ENV)), "missing_key");
 });
 
-test("runtime provider:本地 HTTP 可配置;远程 HTTP 与伪装回环拒绝", () => {
-  for (const baseURL of ["http://127.0.0.1:11434/v1", "http://localhost:1234/v1", "http://[::1]:1234/v1"]) {
+test("runtime provider:本机回环与局域网私网 HTTP 可配置;公网 HTTP 与伪装回环拒绝", () => {
+  for (const baseURL of ["http://127.0.0.1:11434/v1", "http://localhost:1234/v1", "http://[::1]:1234/v1", "http://192.168.1.2/v1", "http://10.0.0.5:8000/v1", "http://172.16.1.1/v1"]) {
     const r = resolveRuntimeProvider(REPO, DATA, { provider: "custom", apiKey: "local-test", baseURL }, BASE_ENV);
     assert.notEqual(r.runtime, "local-agent");
     if (r.runtime === "local-agent") throw new Error("wrong runtime");
     assert.equal(r.profile.base_url, baseURL);
   }
-  for (const baseURL of ["http://192.168.1.2/v1", "http://example.com/v1", "http://localhost.evil.test/v1", "http://127.0.0.1@evil.test/v1", "http://127.1/v1"]) {
+  for (const baseURL of ["http://8.8.8.8/v1", "http://example.com/v1", "http://localhost.evil.test/v1", "http://127.0.0.1@evil.test/v1", "http://127.1/v1", "http://2130706433/v1", "http://192.169.1.1/v1", "http://172.32.0.1/v1"]) {
     assert.equal(code(() => resolveRuntimeProvider(REPO, DATA, { provider: "custom", apiKey: "local-test", baseURL }, BASE_ENV)), "bad_base_url");
   }
 });

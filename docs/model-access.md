@@ -58,8 +58,10 @@ Claude / WorkBuddy 的辩论、Agent 回测与资料转写已接通，和对话�
 
 ### 本地模型地址的范围
 
-API 地址接受 HTTPS；HTTP 只允许字面主机 `localhost`、`127.0.0.1` 或 `[::1]`，可带端口和路径，
-例如 `http://127.0.0.1:11434/v1`。不允许远程/局域网明文 HTTP、URL 内嵌账号密码、查询参数或片段。
+API 地址接受 HTTPS；公网地址必须 HTTPS。HTTP 允许本机回环（`localhost`、`127.x`、`[::1]`）
+与局域网私网地址（`10.x`、`172.16-31.x`、`192.168.x`），可带端口和路径，
+例如 `http://127.0.0.1:11434/v1` 或 `http://192.168.250.10:8000/v1`。
+不允许公网明文 HTTP、URL 内嵌账号密码、查询参数或片段。
 这只解决地址校验：模型仍须满足所选执行方式的协议、鉴权与输出契约，独立 API 直连仍要求已有能力验证。
 本轮用本地 HTTP 替身验证传输链路，未宣称实际 Ollama / LM Studio 模型或所有兼容端点均已验收。
 
@@ -221,7 +223,7 @@ agent 那一轮 4.7 分钟 —— ⚠️ 慢,turn 超时压到 5 分钟会连续
 ### 自托管模型
 
 普通用户仍在“接入 AI”选择 API 来源，填写实际地址、模型名和 key，测试成功后全站沿用这份配置，
-不需要再把聊天和研究各配一次。后端机器上的模型可用 `http://127.0.0.1:11434/v1`；远程模型使用 HTTPS。
+不需要再把聊天和研究各配一次。后端机器上的模型可用 `http://127.0.0.1:11434/v1`；模型在局域网另一台机器时填其私网地址（如 `http://192.168.x.x:8000/v1`），公网模型使用 HTTPS。
 从手机访问时，模型地址中的 `127.0.0.1` 指后端所在电脑，不是手机。
 
 开发者需要 provider 模板时，复制 `providers/selfhosted.json` 到 `<数据根>/providers/selfhosted.json`，
@@ -248,7 +250,7 @@ HTTP 上浏览器到后端这一跳不加密，输入的 API key/资料存在网
 ## 4. 加一家新的 provider
 
 1. 复制 `providers/deepseek.json` 为 `providers/<id>.json`(或放用户私有覆盖 `.local/providers/<id>.json`,同结构,优先级更高);`id` 小写字母开头,只含 `a-z0-9_-`,且与文件名一致。
-2. 填字段:`name`、`wire_api`(**只能 `responses`**;`chat` 会被当场拒绝,见上文)、`base_url`(**第三方必须显式填写；远程 HTTPS、本机字面回环主机允许 HTTP**——Codex 对空 base_url 会回退到 `api.openai.com`,密钥会发到错误主机)、`env_key`(大写变量名,不得是 HOME / PATH 等受保护名)、`auth_modes`(第三方只能 `["api_key"]`)、`requires_openai_auth: false`、`default_model`、`responses_support`(厂商自己提供 `/responses` 填 `native`,经自建网关转换填 `gateway`;不能填 `none`)。可选:`query_params` / `http_headers` / `env_http_headers`(值是环境变量名)/ `request_max_retries` / `stream_max_retries` / `stream_idle_timeout_ms` / `context_limit_tokens` / `retryable_errors` / `known_incompatibilities` / `verified_at`。
+2. 填字段:`name`、`wire_api`(**只能 `responses`**;`chat` 会被当场拒绝,见上文)、`base_url`(**第三方必须显式填写；公网必须 HTTPS、本机回环与局域网私网地址允许 HTTP**——Codex 对空 base_url 会回退到 `api.openai.com`,密钥会发到错误主机)、`env_key`(大写变量名,不得是 HOME / PATH 等受保护名)、`auth_modes`(第三方只能 `["api_key"]`)、`requires_openai_auth: false`、`default_model`、`responses_support`(厂商自己提供 `/responses` 填 `native`,经自建网关转换填 `gateway`;不能填 `none`)。可选:`query_params` / `http_headers` / `env_http_headers`(值是环境变量名)/ `request_max_retries` / `stream_max_retries` / `stream_idle_timeout_ms` / `context_limit_tokens` / `retryable_errors` / `known_incompatibilities` / `verified_at`。
 3. `http_headers` / `query_params` 里写了像密钥的值会被直接拒绝——密钥只能经 `env_key` / `env_http_headers` 引用。
 4. 跑矩阵,按结果回填 `matrix.status` / `matrix.results` / `matrix.note`。
 
