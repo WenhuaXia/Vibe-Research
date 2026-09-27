@@ -24,3 +24,7 @@ dist/
 # 系统与日志
 .DS_Store
 *.log
+
+# 本地杂物(工作scratch,非产品文件)
+.vite/
+pr-split/

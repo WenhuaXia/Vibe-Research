@@ -152,7 +152,8 @@ node orchestrator/src/run.ts --symbol 300308 --market SZ --provider deepseek --p
 ### 自托管模型
 
 普通用户在「接入 AI」选「其它 OpenAI 兼容端点」(或「自托管」),填写实际地址、模型名和 key 即可。
-后端机器上的模型可用 `http://127.0.0.1:11434/v1`;远程模型使用 HTTPS。从手机访问时,模型地址中的 `127.0.0.1` 指后端所在电脑,不是手机。
+后端机器上的模型可用 `http://127.0.0.1:11434/v1`;模型在局域网另一台机器时填其私网地址(如 `http://192.168.x.x:8000/v1`),公网模型使用 HTTPS。从手机访问时,模型地址中的 `127.0.0.1` 指后端所在电脑,不是手机。
+地址边界:HTTPS 任意公网地址;明文 HTTP 仅允许本机回环(`localhost`、`127.x`、`[::1]`)与局域网私网地址(`10.x`、`172.16-31.x`、`192.168.x`),可带端口和路径,例如 `http://192.168.250.10:8000/v1`;不允许公网明文 HTTP、URL 内嵌账号密码、查询参数或片段。
 
 需要 provider 模板时,复制 `providers/selfhosted.json` 到 `<数据根>/providers/selfhosted.json`,替换 `base_url` 并填写 `default_model`;
 密钥仅经 `SELFHOSTED_API_KEY` 环境变量提供。模型必须支持 Chat Completions 和 function calling。
@@ -175,7 +176,7 @@ HTTP 上浏览器到后端这一跳不加密,输入的 API key 与资料有被�
 ## 6. 加一家新的 provider
 
 1. 复制一份产品模板到 `<数据根>/providers/<id>.json`(默认 `.local/providers/`,同结构、优先级高于产品模板);`id` 小写字母开头,只含 `a-z0-9_-`,且与文件名一致。
-2. 填 `name`、`base_url`(Chat Completions 根地址,请求发往 `{base_url}/chat/completions`)、`env_key`(大写变量名,不得借用 `PATH` / `HOME` 等系统变量名)、`default_model`;
+2. 填 `name`、`base_url`(Chat Completions 根地址,请求发往 `{base_url}/chat/completions`;公网必须 HTTPS,本机回环与局域网私网地址允许 HTTP)、`env_key`(大写变量名,不得借用 `PATH` / `HOME` 等系统变量名)、`default_model`;
    可选 `context_limit_tokens` / `known_incompatibilities` / `verified_at` / `notes`。字段与硬约束见 [providers/README.md](../providers/README.md)。
 3. `export <env_key>=...` 后跑兼容矩阵,按结果写 `direct` 段(`supported` / `structured_output` / `verified_at`)。
 

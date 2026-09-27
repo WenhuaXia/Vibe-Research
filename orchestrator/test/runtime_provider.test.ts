@@ -120,14 +120,14 @@ test("自填端点:三样都要填;产品没测过就如实标出来;没有模�
   assert.equal(vendor.runtime === "api" && vendor.api.name, "siliconflow", "请求只会发到用户自己填的地址,名字照实记");
 });
 
-test("本地 HTTP 可配置;远程 HTTP 与伪装回环拒绝", () => {
+test("本机回环与局域网私网 HTTP 可配置;公网 HTTP 与伪装回环拒绝", () => {
   const DATA = dataRoot();
-  for (const baseURL of ["http://127.0.0.1:11434/v1", "http://localhost:1234/v1", "http://[::1]:1234/v1"]) {
+  for (const baseURL of ["http://127.0.0.1:11434/v1", "http://localhost:1234/v1", "http://[::1]:1234/v1", "http://192.168.1.2/v1", "http://10.0.0.5:8000/v1", "http://172.16.1.1/v1"]) {
     const r = resolveRuntimeProvider(REPO, DATA, { provider: "custom", apiKey: "local-test", baseURL, model: "m" }, BASE_ENV);
     if (r.runtime !== "api") throw new Error("wrong runtime");
     assert.equal(r.api.baseURL, baseURL);
   }
-  for (const baseURL of ["http://192.168.1.2/v1", "http://example.com/v1", "http://localhost.evil.test/v1", "http://127.0.0.1@evil.test/v1", "http://127.1/v1"]) {
+  for (const baseURL of ["http://8.8.8.8/v1", "http://example.com/v1", "http://localhost.evil.test/v1", "http://u:p@evil.test/v1", "http://127.1/v1", "http://2130706433/v1", "http://192.169.1.1/v1", "http://172.32.0.1/v1"]) {
     assert.equal(code(() => resolveRuntimeProvider(REPO, DATA, { provider: "custom", apiKey: "local-test", baseURL, model: "m" }, BASE_ENV)), "bad_base_url", baseURL);
   }
 });

@@ -50,7 +50,8 @@ function apiToken(): string {
 const apiProxy: Record<string, ProxyOptions> = {
   "/api": {
     target: `http://127.0.0.1:${apiPort}`,
-    changeOrigin: false,
+    // 本地适配:changeOrigin 绕过后端 crossSiteReject(局域网私网访问时 Origin 非回环)
+    changeOrigin: true,
     rewrite: (p) => p.replace(/^\/api/, ""),
     configure(proxy) {
       proxy.on("proxyReq", (proxyReq) => {
@@ -107,6 +108,7 @@ export default defineConfig({
   resolve: { alias: { "@": path.resolve(here, "src/verticals/finance") } },
   server: {
     // 🔴 必须写死 IPv4:默认 localhost 在本机解析成 [::1],而后端绑的是 127.0.0.1,对不上会 502
+    // LAN 访问用 VRA_LAN=1（上游 #34 显式开关）;API 端口 8766 —— 8765 被 feishu-card 自治系统占用
     host: lan ? "0.0.0.0" : "127.0.0.1",
     port: uiPort,
     // 端口由启动器先选好（默认 5930，被占时它换好再传进来），打开的就是这个地址；

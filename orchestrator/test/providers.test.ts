@@ -25,7 +25,9 @@ const base = (extra: Record<string, unknown> = {}) => ({
 });
 
 test("产品模板:全部过 v2 契约,只描述 Chat Completions 端点,不残留旧引擎字段,不含密钥", () => {
-  const ids = listProviderIds(REPO, path.join(REPO, ".local"));
+  // 🔴 只列产品模板:契约检查的是 providers/<id>.json;用户数据根里的覆盖模板(本机私有,
+  //    可含 v1 字段)不在产品契约范围内,列进来会读到不存在的 providers/local-vllm.json
+  const ids = listProviderIds(REPO, path.join(REPO, ".nonexistent-user-dir"));
   for (const must of ["openai-api", "deepseek", "qwen", "glm", "kimi", "mimo"]) assert.ok(ids.includes(must), `缺模板 ${must}:${ids.join(",")}`);
   for (const id of ids) {
     const raw = fs.readFileSync(path.join(REPO, "providers", `${id}.json`), "utf8");
@@ -77,7 +79,8 @@ test("#34 用户覆盖模板优先于产品模板;远程 HTTPS / 本机 HTTP 边
     assert.equal(source, path.join(dataRoot, "providers", "selfhosted.json"));
     assert.equal(profile.base_url, "http://127.0.0.1:11434/v1");
     assert.equal(profile.default_model, "test-model");
-    assert.throws(() => validateProfile({ ...profile, base_url: "http://192.168.1.10:8000/v1" }, "t"), /HTTPS/);
+    assert.throws(() => validateProfile({ ...profile, base_url: "http://example.com:8000/v1" }, "t"), /HTTPS/);
+    assert.doesNotThrow(() => validateProfile({ ...profile, base_url: "http://192.168.1.10:8000/v1" }, "t"));
     assert.throws(() => validateProfile({ ...profile, base_url: "ftp://example.com/v1" }, "t"), /schema/);
     assert.doesNotThrow(() => validateProfile({ ...profile, base_url: "https://model.example.com/v1" }, "t"));
     // 用户覆盖模板的 id 必须与文件名一致,不能借名
