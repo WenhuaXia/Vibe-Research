@@ -61,7 +61,7 @@ if [ "$SKIP_DOCTOR" -eq 0 ]; then
   case "$doctor_exit" in
     0) ;;
     2) echo "[setup] 产品体检有待处理警告；安装已完成，请按上方提示处理。" >&2 ;;
-    *) echo "[setup] 产品体检失败（退出码 $doctor_exit）。" >&2; exit "$doctor_exit" ;;
+    *) echo "[setup] 产品体检失败（退出码 ${doctor_exit}）。" >&2; exit "$doctor_exit" ;;
   esac
 fi
 

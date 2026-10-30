@@ -10,7 +10,7 @@ sh scripts/portable/start-portable.sh "$@"
 code=$?
 if [ "$code" -ne 0 ]; then
   echo ""
-  echo "[Vibe Research] 没有正常启动（退出码 $code），上面是原因。按回车关闭。"
+  echo "[Vibe Research] 没有正常启动（退出码 ${code}），上面是原因。按回车关闭。"
   read -r _ || true
 fi
 exit "$code"

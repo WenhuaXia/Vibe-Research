@@ -10,7 +10,7 @@ case "$mac_major" in
   ''|*[!0-9]*) ;;
   *)
     if [ "$mac_major" -lt "$MIN_MACOS" ]; then
-      echo "[Vibe Research] 免安装包需要 macOS $MIN_MACOS 或更新版本，这台电脑是 macOS $mac_ver。" >&2
+      echo "[Vibe Research] 免安装包需要 macOS $MIN_MACOS 或更新版本，这台电脑是 macOS ${mac_ver}。" >&2
       echo "  请升级系统，或按 README 的源码安装方式使用。" >&2
       exit 1
     fi
